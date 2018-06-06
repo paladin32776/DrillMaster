@@ -499,7 +499,7 @@ class App(QWidget):
 
     @pyqtSlot()
     def on_file_dialog_button(self):
-        efile = QFileDialog.getOpenFileName(self, 'Open file', '/Users/gfattinger/Documents/eagle/#_GCODE_OUT/','*.drd')[0]
+        efile = QFileDialog.getOpenFileName(self, 'Open file', '/Users/gfattinger/Documents/eagle/#_GERBER_OUT/','*.xln')[0]
         if not efile=="":
             self.Excellon = drill_lib.excellon(efile)
             import ntpath
