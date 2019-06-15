@@ -55,7 +55,7 @@ class App(QWidget):
  
     def __init__(self):
         super().__init__()
-        self.cap = cv2.VideoCapture(2)
+        self.cap = cv2.VideoCapture(0)
         set_res(self.cap, 640, 480)
         self.cnc=drill_lib.cnc()
         [self.cnc.cameraOffset, self.cnc.zCamera, self.cnc.zContact, self.cnc.zDrillDepth, self.cnc.zSeparation, self.cnc.zFastMargin, self.cnc.DrillFeedRate]=settingsfile_lib.File2Settings('test.cfg')

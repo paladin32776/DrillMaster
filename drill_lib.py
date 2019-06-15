@@ -14,7 +14,7 @@ class cnc:
         self.zSeparation = 5
         self.zFastMargin=0.5
         self.DrillFeedRate=50
-        self.ser = serial.Serial('/dev/tty.usbmodem143431', 9600)
+        self.ser = serial.Serial('/dev/tty.usbmodem1434421', 9600)
         if not self.ser.is_open:
             print('Error: could not open serial port to cnc - exiting.')
             exit()
