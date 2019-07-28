@@ -3,10 +3,11 @@ import serial
 from time import sleep
 import copy
 import cv2
+from math import isnan
 
 class cnc:
 
-    def __init__(self):
+    def __init__(self, serport='usbmodem14601'):
         self.cameraOffset=[55.05,-3.64]
         self.zCamera=None
         self.zContact=None
@@ -14,7 +15,9 @@ class cnc:
         self.zSeparation = 5
         self.zFastMargin=0.5
         self.DrillFeedRate=50
-        self.ser = serial.Serial('/dev/tty.usbmodem1434421', 9600)
+        # self.fastRate = 300
+        # self.slowRate = 100
+        self.ser = serial.Serial('/dev/tty.' + serport, 9600)
         if not self.ser.is_open:
             print('Error: could not open serial port to cnc - exiting.')
             exit()
@@ -23,36 +26,60 @@ class cnc:
         self.ser.write(b'M18\n')
     
     def move_rel_mm(self,x,y):
-        x0,y0,z0=self.get_pos_mm()
-        print('move to %f %f' % (x0+x,y0+y))
-        self.ser.write(b'G91\nG0 X%f Y%f\nG90\n' % (x,y))
+        # x0,y0,z0=self.get_pos_mm()
+        # if not np.isnan([x0, y0, z0]).any():
+        #     print('move to %f %f' % (x0+x,y0+y))
+        self.ser.write(b'G91\nG0 X%f Y%f\nG90\n' % (x, y))
 
     def move_rel_z_mm(self,z):
-        x0,y0,z0=self.get_pos_mm()
-        print('move to z=%f' % (z0+z))
+        # x0,y0,z0=self.get_pos_mm()
+        # if not np.isnan([x0,y0,z0]).any():
+        #     print('move to z=%f' % (z0+z))
         self.ser.write(b'G91\nG0 Z%f\nG90\n' % (z))
 
     def move_abs_mm(self,x,y):
         print('move to %f %f' % (x,y))
-        self.ser.write(b'G90\nG0 X%f Y%f\n' % (x,y))
+        self.ser.write(b'G90\nG0 X%f Y%f\n' % (x, y))
 
     def move_abs_z_mm(self,z):
         print('move to %f' % (z))
-        self.ser.write(b'G90\nG0 Z%f\n' % (z))    
+        self.ser.write(b'G90\nG0 Z%f\n' % (z))
 
-    def move_abs_z_feed_mm(self,z,f):
+    def move_abs_z_feed_mm(self,z,f=None):
         print('move to %f with rate %f' % (z,f))
-        self.ser.write(b'G90\nG1 Z%f F%f\n' % (z,f)) 
+        self.ser.write(b'G90\nG1 Z%f F%f\n' % (z,f))
+        self.set_slowRate()
 
-    def get_pos_mm(self):
+    def set_fastRate(self, rate=None):
+        if rate is None:
+            rate = self.fastRate
+        self.ser.write(b'G0 F%f\n' % (rate))
+
+    def set_slowRate(self, rate=None):
+        if rate is None:
+            rate = self.slowRate
+        self.ser.write(b'G1 F%f\n' % (rate))
+
+    def get_state(self):
         try:
             self.ser.read_all()
             self.ser.write(b'?')
             s=self.ser.readline().decode('utf-8')
-            v=list(map(float,s.split(':')[-1].split('>')[0].split(',')))
-            return v[0],v[1],v[2]
+            if s.__contains__('|'):
+                vs = s.strip('<>\n').split('|')
+                result = {v.split(':')[0]:[float(d) for d in v.split(':')[1].split(',')] for v in vs[1:]}
+                result['Status'] = vs[0]
+            elif s.__contains__('<') and s.__contains__('>'):
+                vs = s.strip('<>\n\r').replace('MPos:', '').replace('WPos:', '').split(',')
+                result = {'Status': vs[0], 'MPos': [float(v) for v in vs[1:4]], 'WPos': [float(v) for v in vs[4:7]], 'F':[float('nan')]*2}
+            else:
+                result = {'Status': 'undefined', 'MPos': [float('nan')] * 3, 'WPos': [float('nan')] * 3, 'F': [float('nan')] * 2}
         except:
-            return float('nan'), float('nan'), float('nan')
+            result = {'Status':'undefined', 'MPos':[float('nan')]*3, 'WPos':[float('nan')]*3, 'F':[float('nan')]*2}
+        return result
+
+    def get_pos_mm(self):
+        return self.get_state()['WPos']
 
     def set_zContact(self):
         x0,y0,z0=self.get_pos_mm()
@@ -66,18 +93,22 @@ class cnc:
 
     def home_z(self):
         print('Homing z-axis ... ')
-        self.ser.write(b'G28 Z\n')
+        self.ser.write(b'$H\n')
         while (not self.is_idle()):
             sleep(0.05)
         print('done. ')
 
-    def drill_on(self,speed):
+    def drill_on(self,speed=50):
         print('Turn drill on (speed %f)' % (speed))
-        self.ser.write(b'M3 S%f\n' % (speed))
+        ramp_template = list(range(5,30,5))+list(range(50,255,50))
+        ramp = [s for s in ramp_template if s<speed]+list([speed])
+        for s in ramp:
+            self.ser.write(b'M3 S%f\n' % (s))
+            sleep(0.2)
 
     def drill_off(self):
         print('Turn drill off')
-        self.ser.write(b'M5\n')    
+        self.ser.write(b'M5\n')
 
 
     def drill_hole(self,x,y):
@@ -86,11 +117,11 @@ class cnc:
         self.move_abs_z_mm(self.zContact+self.zFastMargin)
         self.move_abs_z_feed_mm(self.zContact-self.zDrillDepth,self.DrillFeedRate)
         self.move_abs_z_mm(self.zContact+self.zSeparation)
-        
+
 
     def drill_hole_at_cam(self):
         x0,y0,z0=self.get_pos_mm()
-        self.drill_on(50)
+        self.drill_on(self.drillSpeed)
         self.drill_hole(x0,y0)
         self.drill_off()
         self.move_abs_z_mm(self.zCamera)
@@ -98,29 +129,15 @@ class cnc:
         while self.is_running():
             sleep(0.1)
             pass
-        
+
     def is_running(self):
-        self.ser.read_all()
-        self.ser.write(b'?')
-        s=self.ser.readline().decode('utf-8')
-        try:
-            v=s.split('<')[1].split(',')[0]
-        except:
-            return 1      
-        if v=='Run':
+        if self.get_state()['Status']=='Run':
             return 1
         else:
             return 0
 
     def is_idle(self):
-        self.ser.read_all()
-        self.ser.write(b'?')
-        s=self.ser.readline().decode('utf-8')
-        try:
-            v=s.split('<')[1].split(',')[0]
-        except:
-            return False
-        if v=='Idle':
+        if self.get_state()['Status']=='Idle':
             return True
         else:
             return False
@@ -140,7 +157,7 @@ class excellon:
         self.datanew=None
         self.read(filename)
 
-    def read(self,filename):
+    def read(self, filename):
         import re
         unit_factor = 25.4 / 100000
         drills = list()
@@ -148,7 +165,7 @@ class excellon:
         coords = list()
         print(filename)
         file = open(filename, 'r')
-        s = file.readline()
+        s = file.readline().rstrip('\n')
         while len(s) > 0:
             if (not s.strip()[0]==";"):
                 # Checking for METRIC/INCH tag:
@@ -156,11 +173,15 @@ class excellon:
                 if len(d)>0:
                     d = s.split(',')
                     unit = d[0].upper()
-                    zeromode = d[1]
-                    numberformat = d[2]
-                    numberdigits = numberformat.count('0')
-                    digitsaftercomma = re.findall('[.][0]+',numberformat)[0].count('0')
-                    mag_factor = pow(10, -digitsaftercomma)
+                    if len(d)>1:
+                        zeromode = d[1]
+                        numberformat = d[2]
+                        numberdigits = numberformat.count('0')
+                        digitsaftercomma = re.findall('[.][0]+',numberformat)[0].count('0')
+                        mag_factor = pow(10, -digitsaftercomma)
+                    else:
+                        zeromode = 'DECIMAL'
+                        mag_factor = 1.0
                     if unit=="METRIC":
                         unit_factor = 1 # 1 mm
                     elif unit=="INCH":
@@ -184,11 +205,12 @@ class excellon:
                 d = re.findall('T[0-9]+$', s)
                 if len(d) > 0:
                     drill = d[0].strip('\n')
-                    ndrill = drills.index(drill)
-                    coords[ndrill].append(drills[ndrill])
-                    coords[ndrill].append(diameters[ndrill])
-                    coords[ndrill].append(list())
-                    coords[ndrill].append(list())
+                    if drills.__contains__(drill):
+                        ndrill = drills.index(drill)
+                        coords[ndrill].append(drills[ndrill])
+                        coords[ndrill].append(diameters[ndrill])
+                        coords[ndrill].append(list())
+                        coords[ndrill].append(list())
 
                 # X...Y... sections:
                 d = re.findall('X[+-]?[0-9]+[0-9]*[.]?[0-9]*Y[+-]?[0-9]+[0-9]*[.]?[0-9]*', s)
@@ -200,8 +222,11 @@ class excellon:
                     elif zeromode=='LZ':
                         coords[ndrill][2].append(float(s_xy[0].ljust(numberdigits, '0')) * unit_factor * mag_factor)
                         coords[ndrill][3].append(float(s_xy[1].ljust(numberdigits, '0')) * unit_factor * mag_factor)
+                    elif zeromode=='DECIMAL':
+                        coords[ndrill][2].append(float(s_xy[0]) * unit_factor)
+                        coords[ndrill][3].append(float(s_xy[1]) * unit_factor)
 
-            s = file.readline()
+            s = file.readline().rstrip('\n')
 
         file.close()
 

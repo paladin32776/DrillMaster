@@ -1,3 +1,6 @@
+import json
+
+
 def Settings2File(file,items):
     f=open(file,'w')
     for item in items:
@@ -24,3 +27,24 @@ def File2Settings(file):
     f.close()
     return items
 
+def SaveSettings(file, category='', items_dict={}):
+    f = open(file, 'r')
+    settings = json.loads(f.read())
+    f.close()
+    for key, value in items_dict.items():
+        if category not in settings:
+            settings[category]={}
+        settings[category][key] = value
+    f = open(file, 'w')
+    f.write(json.dumps(settings))
+    f.close()
+
+
+def LoadSettings(file, category=None):
+    f = open(file, 'r')
+    settings = json.loads(f.read())
+    f.close()
+    if (category is not None) and (category in settings):
+        return settings[category]
+    else:
+        return settings

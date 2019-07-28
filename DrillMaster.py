@@ -7,7 +7,7 @@ import cv2
 import drill_lib
 import numpy as np
 from time import time, sleep
-import settingsfile_lib
+from settingsfile_lib import LoadSettings, SaveSettings
 import copy
 import imageprocessinglib
 
@@ -19,8 +19,8 @@ def set_res(cap, x,y):
 
 
 def grab_frame(cap):
-    ret,frame = cap.read()
-    return cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)
+    ret, frame = cap.read()
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
 
 def clickable(widget):
@@ -33,7 +33,7 @@ def clickable(widget):
             if obj == widget:
                 if event.type() == QEvent.MouseButtonRelease:
                     if obj.rect().contains(event.pos()):
-                        pos=event.pos()
+                        pos = event.pos()
                         self.clicked.emit(pos.x(), pos.y())
                         return True
 
@@ -43,7 +43,8 @@ def clickable(widget):
     widget.installEventFilter(filter)
     return filter.clicked
 
-def displayImage(img,label):
+
+def displayImage(img, label):
     height, width, channel = img.shape
     bytesPerLine = 3 * width
     qimg = QImage(img.data, width, height, bytesPerLine, QImage.Format_RGB888)
@@ -52,15 +53,20 @@ def displayImage(img,label):
 
 
 class App(QWidget):
- 
+
     def __init__(self):
         super().__init__()
         self.cap = cv2.VideoCapture(0)
         set_res(self.cap, 640, 480)
-        self.cnc=drill_lib.cnc()
-        [self.cnc.cameraOffset, self.cnc.zCamera, self.cnc.zContact, self.cnc.zDrillDepth, self.cnc.zSeparation, self.cnc.zFastMargin, self.cnc.DrillFeedRate]=settingsfile_lib.File2Settings('test.cfg')
+        self.cnc = drill_lib.cnc()
+        # Load settings from cfg file
+        for key, value in LoadSettings('DrillMaster.cfg', 'cnc').items():
+            setattr(self.cnc, key, value)
+        self.cnc.set_fastRate()
+        self.cnc.set_slowRate()
+
         self.initUI()
- 
+
     def initUI(self):
         # Define some GUI dimensions
         # Application window
@@ -353,8 +359,11 @@ class App(QWidget):
         self.webcam_timer.stop()
         self.pos_timer.stop()
         # Save settings:
-
-        settingsfile_lib.Settings2File('test.cfg',[self.cnc.cameraOffset, self.cnc.zCamera, self.cnc.zContact, self.cnc.zDrillDepth, self.cnc.zSeparation, self.cnc.zFastMargin, self.cnc.DrillFeedRate])
+        SaveSettings('DrillMaster.cfg', 'cnc',
+                     {attr:getattr(self.cnc,attr) for attr in
+                     ['cameraOffset', 'zCamera', 'zContact', 'zDrillDepth', 'zSeparation',
+                      'zFastMargin', 'DrillFeedRate']})
+        # settingsfile_lib.Settings2File('test.cfg',[self.cnc.cameraOffset, self.cnc.zCamera, self.cnc.zContact, self.cnc.zDrillDepth, self.cnc.zSeparation, self.cnc.zFastMargin, self.cnc.DrillFeedRate])
         event.accept()
 
     @pyqtSlot()
@@ -396,6 +405,7 @@ class App(QWidget):
     def on_store_zcam_button(self):
         x, y, z = self.cnc.get_pos_mm()
         self.cnc.zCamera = z
+        SaveSettings('DrillMaster.cfg','cnc',{'zCamera':self.cnc.zCamera})
         print("Camera z-position stored.")
 
     @pyqtSlot()
@@ -403,6 +413,7 @@ class App(QWidget):
         if hasattr(self.cnc, 'zCamera') and self.cnc.zCamera is not None:
             print("Moving z-position to camera focus.")
             self.cnc.move_abs_z_mm(self.cnc.zCamera)
+            self.cnc.motors_off()
         else:
             print("Z-position for camera focus not set.")
 
@@ -410,15 +421,17 @@ class App(QWidget):
     def on_store_zcontact_button(self):
         x, y, z = self.cnc.get_pos_mm()
         self.cnc.zContact = z
+        SaveSettings('DrillMaster.cfg', 'cnc', {'zContact': self.cnc.zContact})
         print("Contact z-position stored.")
 
     @pyqtSlot()
     def on_zhome_button(self):
         self.cnc.home_z()
+        self.cnc.motors_off()
 
     @pyqtSlot()
     def on_spindle_on_button(self):
-        self.cnc.drill_on(50)
+        self.cnc.drill_on(250)
 
     @pyqtSlot()
     def on_spindle_off_button(self):
@@ -488,6 +501,7 @@ class App(QWidget):
             print('Camera position: (%f, %f)' % (x, y))
             self.cnc.cameraOffset = [x-self.camera_offset_reference[0], y-self.camera_offset_reference[1]]
             self.camera_offset_reference=None
+            SaveSettings('DrillMaster.cfg', 'cnc', {'cameraOffset': self.cnc.cameraOffset})
             print('Camera offset: (%f, %f)' % (self.cnc.cameraOffset[0], self.cnc.cameraOffset[1]))
 
     @pyqtSlot()
@@ -499,7 +513,7 @@ class App(QWidget):
 
     @pyqtSlot()
     def on_file_dialog_button(self):
-        efile = QFileDialog.getOpenFileName(self, 'Open file', '/Users/gfattinger/Documents/eagle/#_GERBER_OUT/','*.xln')[0]
+        efile = QFileDialog.getOpenFileName(self, 'Open file', '/Users/gfattinger/Documents/eagle/#_GERBER_OUT/','*.xln *.drl')[0]
         if not efile=="":
             self.Excellon = drill_lib.excellon(efile)
             import ntpath
@@ -574,6 +588,8 @@ class App(QWidget):
 
     def on_excellon_image_label(self, x, y):
         print('Excellon image clicked (%d %d).' % (x, y))
+        if not hasattr(self,'Excellon'):
+            return
         px,py,ndrill,nhole = self.Excellon.drillfile_mouse_event(x, y)
         if self.Excellon.Ts == None:
             excellon_image_marked = copy.copy(self.excellon_image)
