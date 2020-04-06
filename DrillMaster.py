@@ -10,6 +10,7 @@ import toupcam
 
 import cv2
 import drill_lib
+import pycnc
 import numpy as np
 from time import time, sleep
 from settingsfile_lib import LoadSettings, SaveSettings
@@ -72,7 +73,7 @@ class App(QMainWindow):
         self.cam.set_auto_exposure(0)
         self.cam.set_exposure_time(50000)
 
-        self.cnc = drill_lib.cnc()
+        self.cnc = pycnc.cnc()
         self.serial_port_combobox.addItems([""] + self.cnc.serial_ports)
         # Load settings from cfg file
         for key, value in LoadSettings('DrillMaster.cfg', 'cnc').items():
@@ -156,31 +157,37 @@ class App(QMainWindow):
     def on_left_button(self):
         print("left")
         self.cnc.move_rel_mm(-self.get_step_size(), 0)
+        self.cnc.motors_off()
 
     @pyqtSlot()
     def on_right_button(self):
         print("right")
         self.cnc.move_rel_mm(self.get_step_size(), 0)
+        self.cnc.motors_off()
 
     @pyqtSlot()
     def on_up_button(self):
         print("up")
         self.cnc.move_rel_mm(0, self.get_step_size())
+        self.cnc.motors_off()
 
     @pyqtSlot()
     def on_down_button(self):
         print("down")
         self.cnc.move_rel_mm(0, -self.get_step_size())
+        self.cnc.motors_off()
 
     @pyqtSlot()
     def on_zup_button(self):
         print("up")
         self.cnc.move_rel_z_mm(self.get_step_size())
+        self.cnc.motors_off()
 
     @pyqtSlot()
     def on_zdown_button(self):
         print("down")
         self.cnc.move_rel_z_mm(-self.get_step_size())
+        self.cnc.motors_off()
 
     @pyqtSlot()
     def on_motor_off_button(self):
